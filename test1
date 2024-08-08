@@ -1,0 +1,251 @@
+function SIMotter()
+% SIMotter is compatible with MATLAB and GNU Octave (www.octave.org).
+% This script simulates the Otter Uncrewed Surface Vehicle (USV) under 
+% various control strategies to handle path following in the presence of 
+% ocean currents. This script allows the user to select from several control
+% methods and simulates the USV's performance using cubic Hermite spline
+% or straight-line paths.
+
+clearvars;                                  % Clear variables from memory
+close all;                                  % Close all figure windows
+clear ALOSpsi ILOSpsi crosstrackHermiteLOS  % Clear persistent variables
+
+%% USER INPUTS
+h  = 0.05;                       % Sampling time [s]
+T_final = 1000;	                 % Final simulation time [s]
+
+% Load condition
+mp = 15;                         % Payload mass (kg), maximum value 45 kg
+rp = [0.05 0 -0.35]';            % Location of payload (m)
+
+% Ocean current
+V_c = 0.3;                       % Ocean current speed (m/s)
+beta_c = deg2rad(30);            % Ocean current direction (rad)
+
+% Define grid for path planning (assuming a 1s for obstacle and 0s for free space)
+gridSize = [200, 200]; % Size of the grid
+grid = zeros(gridSize); % Initialize grid
+% Example obstacles
+grid(100:120, 50:80) = 1; % Example obstacle region
+
+% Waypoints (Initial guess for A* path planner)
+startPos = [0, 0]; % Start position
+endPos = [200, 200]; % End position
+
+% Call A* path planner
+path = AStarPathPlanning(startPos, endPos, grid);
+
+% Convert path to waypoints format
+if ~isempty(path)
+    wpt.pos.x = path(:, 2);
+    wpt.pos.y = path(:, 1);
+else
+    error('No path found!');
+end
+
+wayPoints = [wpt.pos.x wpt.pos.y];
+
+% ALOS and ILOS parameters
+Delta_h = 10;                    % Look-ahead distance
+gamma_h = 0.001;                 % ALOS adaptive gain
+kappa = 0.001;                   % ILOS integral gain
+
+% Additional parameter for straight-line path following
+R_switch = 5;                    % Radius of switching circle
+K_f = 0.3;                       % LOS observer gain
+
+% Initial heading, vehicle points towards next waypoint
+psi0 = atan2(wpt.pos.y(2) - wpt.pos.y(1), wpt.pos.x(2) - wpt.pos.x(1));
+
+% Additional parameters for Hermite spline path following
+Umax = 2;                        % Maximum speed for Hermite spline LOS
+idx_start = 1;                   % Initial index for Hermite spline
+[w_path, x_path, y_path, dx, dy, pi_h, pp_x, pp_y, N_horizon] = ...
+    hermiteSpline(wpt, Umax, h); % Compute Hermite spline for path following
+
+% Otter USV input matrix
+[~,~,M, B_prop] = otter();
+Binv = inv(B_prop);              % Invert input matrix for control allocation
+
+% PID heading autopilot parameters (Nomoto model: M(6,6) = T/K)
+T = 1;                           % Nomoto time constant
+K = T / M(6,6);                  % Nomoto gain constant
+
+wn = 1.5;                        % Closed-loop natural frequency (rad/s)
+zeta = 1.0;                      % Closed-loop relative damping factor (-)
+
+Kp = M(6,6) * wn^2;                     % Proportional gain
+Kd = M(6,6) * (2 * zeta * wn - 1/T);    % Derivative gain
+Td = Kd / Kp;                           % Derivative time constant
+Ti = 10 / wn;                           % Integral time constant
+
+% Reference model parameters
+wn_d = 1.0;                      % Natural frequency (rad/s)
+zeta_d = 1.0;                    % Relative damping factor (-)
+r_max = deg2rad(10.0);           % Maximum turning rate (rad/s)
+
+% Propeller dynamics
+T_n = 0.1;                       % Propeller time constant (s)
+n = [0 0]';                      % Initial propeller speed, [n_left n_right]'
+
+% Initial states
+x = zeros(12,1);                 % x = [u v w p q r xn yn zn phi theta psi]'
+x(12) = psi0;                    % Heading angle
+z_psi = 0;                       % Integral state for heading control
+psi_d = psi0;                    % Desired heading angle
+r_d = 0;                         % Desired rate of turn
+a_d = 0;                         % Desired acceleration
+
+% Time vector initialization
+t = 0:h:T_final;                % Time vector from 0 to T_final          
+nTimeSteps = length(t);         % Number of time steps
+
+% Choose control method and display simulation options
+methods = {'PID heading autopilot, no path following',...
+           'ALOS path-following control using straight lines and waypoint switching',...
+           'ILOS path-following control using straight lines and waypoint switching',...
+           'ALOS path-following control using Hermite splines',...
+           'A* path planning with straight-line path following'}; % Added method
+ControlFlag = controlMethod(methods);
+displayControlMethod(ControlFlag, R_switch, Delta_h);
+
+%% MAIN LOOP
+simdata = zeros(nTimeSteps, 14);    % Preallocate table for simulation data
+
+for i = 1:nTimeSteps
+
+    % Measurements with noise
+    r = x(6) + 0.001 * randn;       % Yaw rate 
+    xn = x(7) + 0.01 * randn;       % North position
+    yn = x(8) + 0.01 * randn;       % East position
+    psi = x(12) + 0.001 * randn;    % Yaw angle
+
+    % Guidance and control system
+    switch ControlFlag
+        case 1  % PID heading autopilot with reference model
+            % Reference model, step input adjustments
+            psi_ref = psi0;
+            if t(i) > 100; psi_ref = deg2rad(0); end
+            if t(i) > 500; psi_ref = deg2rad(-90); end
+
+            % Reference model propagation
+            [psi_d, r_d, a_d] = refModel(psi_d, r_d, a_d, psi_ref, r_max, ...
+                                         zeta_d, wn_d, h, 1);
+
+        case 2  % ALOS heading autopilot straight-line path following
+            psi_ref = ALOSpsi(xn, yn, Delta_h, gamma_h, h, R_switch, wpt);
+            [psi_d, r_d] = LOSobserver(psi_d, r_d, psi_ref, h, K_f);
+
+        case 3  % ILOS heading autopilot straight-line path following
+            psi_ref = ILOSpsi(xn, yn, Delta_h, kappa, h, R_switch, wpt);
+            [psi_d, r_d] = LOSobserver(psi_d, r_d, psi_ref, h, K_f);
+
+        case 4  % ALOS heading autopilot, cubic Hermite spline interpolation
+            [psi_ref, idx_start] = crosstrackHermiteLOS(w_path, x_path, ...
+                y_path, dx, dy, pi_h, xn, yn, h, Delta_h, pp_x, pp_y, ...
+                idx_start, N_horizon, gamma_h);
+            [psi_d, r_d] = LOSobserver(psi_d, r_d, psi_ref, h, K_f);
+
+        case 5  % A* path planning with straight-line path following
+            % Recalculate waypoints based on the A* path
+            wpt.pos.x = path(:, 2);
+            wpt.pos.y = path(:, 1);
+            % Update the path-following parameters
+            psi_ref = ALOSpsi(xn, yn, Delta_h, gamma_h, h, R_switch, wpt);
+            [psi_d, r_d] = LOSobserver(psi_d, r_d, psi_ref, h, K_f);
+    end
+
+    % PID heading (yaw moment) autopilot and forward thrust
+    tau_X = 100;                              % Constant forward thrust
+    tau_N = (T/K) * a_d + (1/K) * r_d - ...   % Yaw moment control
+            Kp * (ssa(psi - psi_d) + ...      % Proportional term
+            Td * (r - r_d) + (1/Ti) * z_psi); % Derivative and integral terms
+
+    % Control allocation
+    u = Binv * [tau_X; tau_N];      % Compute control inputs for propellers
+    n_c = sign(u) .* sqrt(abs(u));  % Convert to required propeller speeds
+
+    % Store simulation data
+    simdata(i, :) = [x', r_d, psi_d];
+
+    % RK4 method x(k+1)
+    x = rk4(@otter, h, x, n,mp,rp,V_c,beta_c);
+
+    % Euler's method
+    n = n + h/T_n * (n_c - n);              % Update propeller speeds
+    z_psi = z_psi + h * ssa(psi - psi_d);   % Update integral state for heading control
+end
+
+% Plot results
+plotResults(simdata, t);
+end
+
+function path = AStarPathPlanning(startPos, endPos, grid)
+% A* Path Planning Algorithm
+
+    % Initialize the open and closed sets
+    openSet = startPos;
+    cameFrom = containers.Map('KeyType', 'char', 'ValueType', 'any');
+    gScore = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    fScore = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    
+    % Initialize g and f scores
+    gScore(mat2str(startPos)) = 0;
+    fScore(mat2str(startPos)) = norm(startPos - endPos);
+    
+    while ~isempty(openSet)
+        % Get the current node
+        [~, idx] = min(cell2mat(values(fScore, cellfun(@(x) mat2str(x), openSet, 'UniformOutput', false))));
+        current = openSet{idx};
+        
+        % Check if the goal is reached
+        if norm(current - endPos) < 1
+            path = reconstructPath(cameFrom, current);
+            return;
+        end
+        
+        % Remove current from openSet
+        openSet(idx) = [];
+        
+        % Explore neighbors
+        neighbors = [current + [1,0]; current + [-1,0]; current + [0,1]; current + [0,-1]];
+        for i = 1:size(neighbors, 1)
+            neighbor = neighbors(i, :);
+            
+            % Skip invalid or blocked neighbors
+            if any(neighbor < 1) || any(neighbor > size(grid)) || grid(neighbor(1), neighbor(2)) == 1
+                continue;
+            end
+            
+            tentative_gScore = gScore(mat2str(current)) + norm(neighbor - current);
+            if ~isKey(gScore, mat2str(neighbor)) || tentative_gScore < gScore(mat2str(neighbor))
+                cameFrom(mat2str(neighbor)) = current;
+                gScore(mat2str(neighbor)) = tentative_gScore;
+                fScore(mat2str(neighbor)) = gScore(mat2str(neighbor)) + norm(neighbor - endPos);
+                if ~ismember(neighbor, openSet, 'rows')
+                    openSet = [openSet; neighbor];
+                end
+            end
+        end
+    end
+    
+    % Return empty if no path found
+    path = [];
+end
+
+function path = reconstructPath(cameFrom, current)
+    path = current;
+    while isKey(cameFrom, mat2str(current))
+        current = cameFrom(mat2str(current));
+        path = [current; path];
+    end
+end
+
+function plotResults(simdata, t)
+    figure;
+    plot(t, simdata(:, 7:8)); % Plot North and East positions
+    xlabel('Time (s)');
+    ylabel('Position (m)');
+    legend('North', 'East');
+    title('Simulation Results');
+end

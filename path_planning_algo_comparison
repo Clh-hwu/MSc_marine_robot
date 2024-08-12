@@ -1,0 +1,313 @@
+clc;
+clear;
+close all;
+
+% Define the map size and obstacles
+mapSize = [20, 20];  % 20x20 grid
+map = zeros(mapSize);
+obstacles1 = [
+    4, 4; 4, 5; 4, 6;
+    5, 4; 5, 6;
+    6, 4; 6, 5; 6, 6
+]; % Clustered obstacles
+
+obstacles2 = [
+    2, 2; 3, 3; 4, 4;
+    5, 5; 6, 6; 7, 7;
+    8, 8; 9, 9; 10, 10
+]; % Diagonale line of obstacles
+
+obstacles3 = [
+    7, 1:5;     % Horizontal bar
+    10:14, 8;   % Vertical bar
+    15, 5:9;    % Horizontal bar
+];
+
+obstacles4 = [
+    3, 8; 4, 7; 4, 8; 4, 9;
+    5, 6; 5, 7;
+    8, 3; 9, 3; 10, 3; 11, 3;
+    12, 12; 13, 12; 14, 12
+]; % Random Obstacles
+
+obstacles5 = [
+    2, 2; 2, 3; 2, 4;
+    3, 2; 4, 2;
+    4, 3; 4, 4; 4, 5;
+    5, 5; 6, 5; 7, 5;
+    7, 4; 7, 3; 7, 2;
+    6, 2; 5, 2;
+]; % Maze-like
+
+obstacles6 = [2,10;2,9;2,8;2,7;2,6;2,5;2,4;2,3;8,18;8,17;8,16;8,15;8,14;8,13;8,12;8,11;8,10;8,9;8,8;8,7;8,6;7,18;6,18;5,18];
+
+
+
+obstacles = [5, 5; 5, 6; 5, 7; 6, 5; 7, 5; 10, 10; 10, 11; 11, 10; 15,13;15,14;15,15;15,16];  % Example obstacles
+for i = 1:size(obstacles6, 1)
+    map(obstacles6(i,1), obstacles6(i,2)) = 1;
+end
+
+% Define start and goal positions
+start = [1, 5];
+goal = [16, 17];
+
+% Define time limit in seconds
+timeLimit = 5;  % Example: 5 seconds
+
+% Visualize the map
+figure;
+imagesc(map);
+hold on;
+plot(start(2), start(1), 'go', 'MarkerSize', 10, 'LineWidth', 3); % Start
+plot(goal(2), goal(1), 'ro', 'MarkerSize', 10, 'LineWidth', 3);   % Goal
+title('Map with Obstacles');
+xlabel('X');
+ylabel('Y');
+axis equal;
+
+% Dijkstra Algorithm
+[dijkstraPath, dijkstraTime, dijkstraIterations] = dijkstraAlgorithm(map, start, goal, timeLimit);
+if ~isempty(dijkstraPath)
+    plot(dijkstraPath(:,2), dijkstraPath(:,1), 'm+', 'LineWidth', 2);
+end
+
+% A* Algorithm
+[aStarPath, aStarTime, aStarIterations] = aStarAlgorithm(map, start, goal, timeLimit);
+if ~isempty(aStarPath)
+    plot(aStarPath(:,2), aStarPath(:,1), 'r-', 'LineWidth', 2);
+end
+
+% BFS Algorithm
+[bfsPath, bfsTime, bfsIterations] = bfsAlgorithm(map, start, goal, timeLimit);
+if ~isempty(bfsPath)
+    plot(bfsPath(:,2), bfsPath(:,1), 'g--', 'LineWidth', 2);
+end
+
+% Legend
+legend('Start', 'Goal', 'Dijkstra', 'A*', 'BFS');
+
+% Display computed times and iterations
+fprintf('Dijkstra: Time = %.4f sec, Iterations = %d\n', dijkstraTime, dijkstraIterations);
+fprintf('A*: Time = %.4f sec, Iterations = %d\n', aStarTime, aStarIterations);
+fprintf('BFS: Time = %.4f sec, Iterations = %d\n', bfsTime, bfsIterations);
+
+% Create a table with the data
+algorithmNames = {'Dijkstra'; 'A*'; 'BFS'};
+times = [dijkstraTime; aStarTime; bfsTime];
+iterations = [dijkstraIterations; aStarIterations; bfsIterations];
+
+% Create a figure
+figure;
+
+% Subplot 1: Time Comparison
+subplot(1, 2, 1);
+barh(times);  % Horizontal bar chart
+set(gca, 'YTickLabel', algorithmNames);
+xlabel('Time (seconds)');
+xlim([0, max(times) + mean(times)]);
+title('Algorithm Time Comparison');
+% Display values on the bars
+for i = 1:length(times)
+    text(times(i) + 0.001, i, sprintf('%.4f', times(i)), 'VerticalAlignment', 'middle');
+end  
+grid on;
+
+% Subplot 2: Iterations Comparison
+subplot(1, 2, 2);
+barh(iterations);  % Horizontal bar chart
+set(gca, 'YTickLabel', algorithmNames);
+xlabel('Iterations');
+xlim([0, max(iterations) + mean(iterations)]);
+title('Algorithm Iterations Comparison');
+% Display values on the bars
+for i = 1:length(iterations)
+    text(iterations(i) + 10, i, sprintf('%d', iterations(i)), 'VerticalAlignment', 'middle');
+end
+grid on;
+
+% Improve layout
+sgtitle('Comparison of Pathfinding Algorithms');
+
+%% Dijkstra Algorithm
+function [path, elapsedTime, iterations] = dijkstraAlgorithm(map, start, goal, timeLimit)
+    tic;
+    [rows, cols] = size(map);
+    distance = Inf(rows, cols);
+    visited = false(rows, cols);
+    parent = zeros(rows, cols, 2);
+
+    distance(start(1), start(2)) = 0;
+    iterations = 0;
+
+    while toc < timeLimit
+        iterations = iterations + 1;
+
+        % Find the unvisited node with the smallest distance
+        [~, idx] = min(distance(:));
+        [currentRow, currentCol] = ind2sub(size(map), idx);
+
+        % If the goal is reached, stop
+        if isequal([currentRow, currentCol], goal)
+            path = reconstructPath(parent, start, goal);
+            elapsedTime = toc;
+            return;
+        end
+
+        visited(currentRow, currentCol) = true;
+
+        % Update the distances to the neighboring nodes
+        neighbors = getNeighbors(map, [currentRow, currentCol]);
+        for i = 1:size(neighbors, 1)
+            neighbor = neighbors(i, :);
+            if ~visited(neighbor(1), neighbor(2))
+                newDist = distance(currentRow, currentCol) + 1;
+                if newDist < distance(neighbor(1), neighbor(2))
+                    distance(neighbor(1), neighbor(2)) = newDist;
+                    parent(neighbor(1), neighbor(2), :) = [currentRow, currentCol];
+                end
+            end
+        end
+
+        % Mark the current node as visited
+        distance(currentRow, currentCol) = Inf; % So it won't be picked again
+    end
+
+    % If time limit is exceeded
+    path = [];
+    elapsedTime = toc;
+    fprintf('Dijkstra: Time limit exceeded. No path found.\n');
+end
+
+%% A* Algorithm
+function [path, elapsedTime, iterations] = aStarAlgorithm(map, start, goal, timeLimit)
+    tic;
+    [rows, cols] = size(map);
+    gScore = Inf(rows, cols);
+    fScore = Inf(rows, cols);
+    visited = false(rows, cols);
+    parent = zeros(rows, cols, 2);
+
+    gScore(start(1), start(2)) = 0;
+    fScore(start(1), start(2)) = heuristic(start, goal);
+    iterations = 0;
+
+    while toc < timeLimit
+        iterations = iterations + 1;
+
+        % Find the node with the smallest fScore
+        [~, idx] = min(fScore(:));
+        [currentRow, currentCol] = ind2sub(size(map), idx);
+
+        % If the goal is reached, stop
+        if isequal([currentRow, currentCol], goal)
+            path = reconstructPath(parent, start, goal);
+            elapsedTime = toc;
+            return;
+        end
+
+        visited(currentRow, currentCol) = true;
+
+        % Update the gScore and fScore for the neighbors
+        neighbors = getNeighbors(map, [currentRow, currentCol]);
+        for i = 1:size(neighbors, 1)
+            neighbor = neighbors(i, :);
+            if ~visited(neighbor(1), neighbor(2))
+                tentativeGScore = gScore(currentRow, currentCol) + 1;
+                if tentativeGScore < gScore(neighbor(1), neighbor(2))
+                    gScore(neighbor(1), neighbor(2)) = tentativeGScore;
+                    fScore(neighbor(1), neighbor(2)) = tentativeGScore + heuristic(neighbor, goal);
+                    parent(neighbor(1), neighbor(2), :) = [currentRow, currentCol];
+                end
+            end
+        end
+
+        % Mark the current node as visited
+        fScore(currentRow, currentCol) = Inf; % So it won't be picked again
+    end
+
+    % If time limit is exceeded
+    path = [];
+    elapsedTime = toc;
+    fprintf('A*: Time limit exceeded. No path found.\n');
+end
+
+%% BFS Algorithm
+function [path, elapsedTime, iterations] = bfsAlgorithm(map, start, goal, timeLimit)
+    tic;
+    [rows, cols] = size(map);
+    visited = false(rows, cols);
+    parent = zeros(rows, cols, 2);
+    queue = start;
+    visited(start(1), start(2)) = true;
+    iterations = 0;
+
+    while toc < timeLimit
+        if isempty(queue)
+            % If the queue is empty, no path found
+            path = [];
+            elapsedTime = toc;
+            fprintf('BFS: Time limit exceeded. No path found.\n');
+            return;
+        end
+        
+        iterations = iterations + 1;
+
+        current = queue(1, :);
+        queue(1, :) = [];  % Dequeue
+
+        if isequal(current, goal)
+            path = reconstructPath(parent, start, goal);
+            elapsedTime = toc;
+            return;
+        end
+
+        neighbors = getNeighbors(map, current);
+        for i = 1:size(neighbors, 1)
+            neighbor = neighbors(i, :);
+            if ~visited(neighbor(1), neighbor(2))
+                visited(neighbor(1), neighbor(2)) = true;
+                parent(neighbor(1), neighbor(2), :) = current;
+                queue = [queue; neighbor];  % Enqueue
+            end
+        end
+    end
+
+    % If time limit is exceeded
+    path = [];
+    elapsedTime = toc;
+    fprintf('BFS: Time limit exceeded. No path found.\n');
+end
+
+%% Functions
+function neighbors = getNeighbors(map, node)
+    [rows, cols] = size(map);
+    row = node(1);
+    col = node(2);
+    neighbors = [];
+
+    for r = -1:1
+        for c = -1:1
+            if (r ~= 0 || c ~= 0) && row+r > 0 && row+r <= rows && col+c > 0 && col+c <= cols
+                if map(row+r, col+c) == 0  % Check for obstacles
+                    neighbors = [neighbors; row+r, col+c];
+                end
+            end
+        end
+    end
+end
+
+function h = heuristic(node, goal)
+    h = abs(node(1) - goal(1)) + abs(node(2) - goal(2));  % Manhattan distance
+end
+
+function path = reconstructPath(parent, start, goal)
+    path = goal;
+    while any(path(1,:) ~= start)
+        if all(path(1,:) == start) % If start is reached
+            break;
+        end
+        parentNode = squeeze(parent(path(1,1), path(1,2), :))';  % Reshape to 1x2
+        path = [parentNode; path];
+    end
+end

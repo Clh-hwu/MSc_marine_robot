@@ -1,0 +1,52 @@
+clc;
+clear;
+close all;
+% Load example map and create an occupancy map
+% Define the map size and obstacles
+load("exampleMaps.mat","simpleMap");
+map = occupancyMap(simpleMap);
+
+% Create a state validator using the map
+sv = validatorOccupancyMap(stateSpaceSE2, Map=map);
+sv.ValidationDistance = 2;
+% Define start and goal poses
+start = [5 8 pi/2];
+goal = [7 18 pi/2];
+
+% Create the plannerBenchmark object
+pbo = plannerBenchmark(sv, start, goal);
+
+% Define function handles for each planner
+plannerHAFcn = @(sv)plannerHybridAStar(sv);
+plannerRRTSFcn = @(sv)plannerRRTStar(sv.StateSpace, sv);
+%plannerAStarFcn = @(sv)plannerAStarGrid(map);
+plannerPRMFcn = @(sv)plannerPRM(sv.StateSpace, sv);
+
+% Define common function handle for planning
+plnFcn = @(initOut, s, g) plan(initOut, s, g);
+
+% Add the planners to the benchmark
+addPlanner(pbo, plnFcn, plannerHAFcn, PlannerName="HybridAStar");
+addPlanner(pbo, plnFcn, plannerRRTSFcn, PlannerName="RRTStar");
+%addPlanner(pbo, plnFcn, plannerAStarFcn, PlannerName="AStar");
+addPlanner(pbo, plnFcn, plannerPRMFcn, PlannerName="PRM");
+
+% Set the random number generator for reproducibility
+rng('default');
+
+% Run the planners and collect metrics
+runCount = 5; % Number of runs for each planner
+runPlanner(pbo, runCount);
+
+% Retrieve and display metrics for path length
+[pathLenSummary, pathLenData] = metric(pbo, "pathLength");
+disp('Path Length Summary:');
+disp(pathLenSummary);
+
+disp('Path Length Data:');
+disp(pathLenData);
+
+% Visualize all metrics
+show(pbo);
+
+

@@ -1,0 +1,103 @@
+clc;
+clear;
+close all;
+% Load the example map
+load exampleMaps.mat
+
+% Create a binary occupancy map from the simpleMap
+map = binaryOccupancyMap(simpleMap, 2);
+
+% Show the map
+figure;
+show(map);
+title('Occupancy Grid Map');
+
+% Create a simple roadmap with 50 nodes
+prmSimple = mobileRobotPRM(map, 50);
+
+% Show the simple roadmap
+figure;
+show(prmSimple);
+title('Simple PRM with 50 Nodes');
+
+% Define start and goal locations
+startLocation = [2 1];
+endLocation = [10 12];
+
+% Calculate the path using the simple roadmap
+path = findpath(prmSimple, startLocation, endLocation);
+
+% Show the simple roadmap with the path
+figure;
+show(prmSimple);
+hold on;
+if ~isempty(path)
+    plot(path(:,1), path(:,2), 'r', 'LineWidth', 2);
+    title('Path found using Simple PRM');
+else
+    disp('No path found');
+end
+
+% Create a denser roadmap with 250 nodes
+prmComplex = mobileRobotPRM(map, 250);
+
+% Show the complex roadmap
+figure;
+show(prmComplex);
+title('Complex PRM with 250 Nodes');
+
+% Calculate the path using the complex roadmap
+path = findpath(prmComplex, startLocation, endLocation);
+
+% Show the complex roadmap with the path
+figure;
+show(prmComplex);
+hold on;
+if ~isempty(path)
+    plot(path(:,1), path(:,2), 'r', 'LineWidth', 2);
+    title('Path found using Complex PRM');
+else
+    disp('No path found');
+end
+
+% Save the random number generation settings
+rngState = rng;
+
+% Create a PRM with 100 nodes and default connection distance
+prm = mobileRobotPRM(map, 100);
+
+% Find and show the path using default connection distance
+path = findpath(prm, startLocation, endLocation);
+figure;
+show(prm);
+hold on;
+if ~isempty(path)
+    plot(path(:,1), path(:,2), 'r', 'LineWidth', 2);
+    title('Path found using Default Connection Distance');
+end
+
+% Restore the random number generation settings
+rng(rngState);
+
+% Lower the connection distance to 2 meters
+prm.ConnectionDistance = 2;
+
+% Find and show the path with reduced connection distance
+path = findpath(prm, startLocation, endLocation);
+figure;
+show(prm);
+hold on;
+if ~isempty(path)
+    plot(path(:,1), path(:,2), 'r', 'LineWidth', 2);
+    title('Path found with Reduced Connection Distance');
+else
+    disp('No path found with reduced connection distance');
+end
+
+% Update the PRM nodes and connections
+update(prm);
+
+% Show the updated roadmap
+figure;
+show(prm);
+title('Updated PRM');

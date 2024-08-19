@@ -5,6 +5,9 @@ close all;
 % Define the map size and obstacles
 mapSize = [20, 20];  % 20x20 grid
 map = zeros(mapSize);
+
+
+
 obstacles1 = [
     4, 4; 4, 5; 4, 6;
     5, 4; 5, 6;
@@ -49,7 +52,7 @@ for i = 1:size(obstacles6, 1)
 end
 
 % Define start and goal positions
-start = [1, 5];
+start = [1, 1];
 goal = [16, 17];
 
 % Define time limit in seconds
@@ -61,41 +64,65 @@ imagesc(map);
 hold on;
 plot(start(2), start(1), 'go', 'MarkerSize', 10, 'LineWidth', 3); % Start
 plot(goal(2), goal(1), 'ro', 'MarkerSize', 10, 'LineWidth', 3);   % Goal
+%imagesc(map);
 title('Map with Obstacles');
 xlabel('X');
 ylabel('Y');
-axis equal;
+axis([-1 21 -1 21]);
 
 % Dijkstra Algorithm
 [dijkstraPath, dijkstraTime, dijkstraIterations] = dijkstraAlgorithm(map, start, goal, timeLimit);
 if ~isempty(dijkstraPath)
+    disp('dijkstraPathx');
+    disp(dijkstraPath(:,1)');
+    disp('dijkstraPathy');
+    disp(dijkstraPath(:,2)');
     plot(dijkstraPath(:,2), dijkstraPath(:,1), 'm+', 'LineWidth', 2);
 end
 
 % A* Algorithm
 [aStarPath, aStarTime, aStarIterations] = aStarAlgorithm(map, start, goal, timeLimit);
 if ~isempty(aStarPath)
+    disp('aStarPathx');
+    disp(aStarPath(:,1)');
+    disp('aStarPathy');
+    disp(aStarPath(:,2)');
     plot(aStarPath(:,2), aStarPath(:,1), 'r-', 'LineWidth', 2);
 end
 
 % BFS Algorithm
 [bfsPath, bfsTime, bfsIterations] = bfsAlgorithm(map, start, goal, timeLimit);
 if ~isempty(bfsPath)
+    disp('bfsPathx');
+    disp(bfsPath(:,1)');
+    disp('bfsPathy');
+    disp(bfsPath(:,2)');
     plot(bfsPath(:,2), bfsPath(:,1), 'g--', 'LineWidth', 2);
 end
 
+% Hybrid A*/Theta* Algorithm
+[hybridPath, hybridTime, hybridIterations] = hybridAStarThetaStarAlgorithm(map, start, goal, timeLimit);
+if ~isempty(hybridPath)
+    disp('hybridPathx');
+    disp(hybridPath(:,1)');
+    disp('hybridPathy');
+    disp(hybridPath(:,2)');
+    plot(hybridPath(:,2), hybridPath(:,1), 'b-.', 'LineWidth', 2);
+end
+
 % Legend
-legend('Start', 'Goal', 'Dijkstra', 'A*', 'BFS');
+legend('Start', 'Goal','Dijkstra', 'A*', 'BFS', 'Hybrid A*/Theta*');
 
 % Display computed times and iterations
 fprintf('Dijkstra: Time = %.4f sec, Iterations = %d\n', dijkstraTime, dijkstraIterations);
 fprintf('A*: Time = %.4f sec, Iterations = %d\n', aStarTime, aStarIterations);
 fprintf('BFS: Time = %.4f sec, Iterations = %d\n', bfsTime, bfsIterations);
+fprintf('Hybrid A*/Theta*: Time = %.4f sec, Iterations = %d\n', hybridTime, hybridIterations);
 
 % Create a table with the data
-algorithmNames = {'Dijkstra'; 'A*'; 'BFS'};
-times = [dijkstraTime; aStarTime; bfsTime];
-iterations = [dijkstraIterations; aStarIterations; bfsIterations];
+algorithmNames = {'Dijkstra'; 'A*'; 'BFS'; 'Hybrid A*/Theta*'};
+times = [dijkstraTime; aStarTime; bfsTime; hybridTime];
+iterations = [dijkstraIterations; aStarIterations; bfsIterations; hybridIterations];
 
 % Create a figure
 figure;
@@ -279,6 +306,81 @@ function [path, elapsedTime, iterations] = bfsAlgorithm(map, start, goal, timeLi
     fprintf('BFS: Time limit exceeded. No path found.\n');
 end
 
+%% Hybrid A*/Theta* Algorithm
+function [path, elapsedTime, iterations] = hybridAStarThetaStarAlgorithm(map, start, goal, timeLimit)
+    tic;
+    [rows, cols] = size(map);
+    open_list = [];
+    closed_list = zeros(rows, cols);
+    came_from = zeros(rows, cols, 2);
+
+    % Define the heuristic
+    heuristic = @(p1, p2) sqrt((p1(1) - p2(1))^2 + (p1(2) - p2(2))^2);  % Euclidean distance
+
+    % Initialize start node
+    g_score = Inf(rows, cols);
+    f_score = Inf(rows, cols);
+    g_score(start(1), start(2)) = 0;
+    f_score(start(1), start(2)) = heuristic(start, goal);
+    
+    open_list = [open_list; start];
+    iterations = 0;
+
+    while toc < timeLimit
+        if isempty(open_list)
+            path = [];
+            elapsedTime = toc;
+            fprintf('Hybrid A*/Theta*: Time limit exceeded. No path found.\n');
+            return;
+        end
+
+        % Find node with smallest f_score
+        [~, idx] = min(f_score(sub2ind([rows, cols], open_list(:,1), open_list(:,2))));
+        current = open_list(idx, :);
+
+        % Check if goal is reached
+        if isequal(current, goal)
+            path = reconstructPath(came_from, start, goal);
+            elapsedTime = toc;
+            return;
+        end
+
+        % Move current node to closed_list
+        open_list(idx, :) = [];
+        closed_list(current(1), current(2)) = 1;
+
+        % Check neighbors
+        neighbors = getNeighbors(map, current);
+        for i = 1:size(neighbors, 1)
+            neighbor = neighbors(i, :);
+
+            if closed_list(neighbor(1), neighbor(2)) == 1
+                continue;
+            end
+
+            tentative_g_score = g_score(current(1), current(2)) + heuristic(current, neighbor);
+            
+            if tentative_g_score < g_score(neighbor(1), neighbor(2))
+                came_from(neighbor(1), neighbor(2), :) = current;
+                g_score(neighbor(1), neighbor(2)) = tentative_g_score;
+                f_score(neighbor(1), neighbor(2)) = g_score(neighbor(1), neighbor(2)) + heuristic(neighbor, goal);
+                
+                if ~ismember(neighbor, open_list, 'rows')
+                    open_list = [open_list; neighbor];
+                end
+            end
+        end
+
+        iterations = iterations + 1;
+    end
+
+    % If time limit is exceeded
+    path = [];
+    elapsedTime = toc;
+    fprintf('Hybrid A*/Theta*: Time limit exceeded. No path found.\n');
+end
+
+
 %% Functions
 function neighbors = getNeighbors(map, node)
     [rows, cols] = size(map);
@@ -310,4 +412,8 @@ function path = reconstructPath(parent, start, goal)
         parentNode = squeeze(parent(path(1,1), path(1,2), :))';  % Reshape to 1x2
         path = [parentNode; path];
     end
+end
+
+function valid = is_valid_node(node, rows, cols, map, closed_list)
+    valid = node(1) > 0 && node(1) <= rows && node(2) > 0 && node(2) <= cols && map(node(1), node(2)) == 0 && closed_list(node(1), node(2)) == 0;
 end
